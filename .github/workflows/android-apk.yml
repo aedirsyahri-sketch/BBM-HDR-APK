@@ -26,14 +26,22 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          SDK="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
           cd /tmp
+
           curl -fL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o tools.zip
+
           mkdir -p /tmp/android-tools
           unzip -q tools.zip -d /tmp/android-tools
-          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
-          cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_HOME/cmdline-tools/latest/"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          mkdir -p "$SDK/cmdline-tools/latest"
+          cp -r /tmp/android-tools/cmdline-tools/. "$SDK/cmdline-tools/latest/"
+
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
 
       - name: Accept SDK Licenses
         run: |
@@ -52,11 +60,15 @@ jobs:
           set -euxo pipefail
           ZIP_FILE="$(find . -maxdepth 1 -type f -name 'BUNKER-HDR-Android-Project*.zip' -print -quit)"
           test -n "$ZIP_FILE"
+
           mkdir -p extracted
           unzip -q "$ZIP_FILE" -d extracted
+
           PROJECT_DIR="$(find extracted -type f -name settings.gradle -printf '%h\n' | head -n 1)"
           test -n "$PROJECT_DIR"
+
           cp -a "$PROJECT_DIR/." .
+
           test -s app/src/main/assets/index.html
           test -s app/src/main/java/com/tbliberty27/fuelmanagement/MainActivity.kt
 
