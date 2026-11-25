@@ -41,9 +41,28 @@ jobs:
       - name: Accept licenses and install SDK
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+
+          echo "Menerima lisensi Android SDK..."
+
+          set +o pipefail
           yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
-          sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          SDK_STATUS=${PIPESTATUS[1]}
+          set -o pipefail
+
+          if [ "$SDK_STATUS" -ne 0 ]; then
+            echo "Gagal menerima lisensi Android SDK"
+            exit "$SDK_STATUS"
+          fi
+
+          echo "Menginstal Android SDK packages..."
+
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "Android SDK berhasil disiapkan."
 
       - name: Setup Gradle 8.9
         shell: bash
