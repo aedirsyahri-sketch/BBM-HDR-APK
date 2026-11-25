@@ -72,6 +72,32 @@ jobs:
           test -s app/src/main/assets/index.html
           test -s app/src/main/java/com/tbliberty27/fuelmanagement/MainActivity.kt
 
+            - name: Fix Java Kotlin Compatibility
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("app/build.gradle")
+          s = p.read_text()
+
+          s = s.replace(
+              "    defaultConfig {",
+              """    compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+
+              defaultConfig {"""
+          )
+
+          p.write_text(s)
+          PY
+
       - name: Build APK
         run: gradle --no-daemon --stacktrace assembleDebug
 
