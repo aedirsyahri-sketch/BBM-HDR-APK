@@ -22,25 +22,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK Tools
+        run: |
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          cd /tmp
+          curl -fL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o tools.zip
+          mkdir -p /tmp/android-tools
+          unzip -q tools.zip -d /tmp/android-tools
+          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+          cp -a /tmp/android-tools/cmdline-tools/. "$ANDROID_HOME/cmdline-tools/latest/"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-      - name: Install SDK
+      - name: Accept SDK Licenses
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Setup Gradle
         run: |
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o gradle.zip
+          curl -fL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o gradle.zip
           unzip -q gradle.zip -d /tmp
-          echo "/tmp/gradle-8.9/bin" >> $GITHUB_PATH
+          echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-      - name: Extract Android Project
+      - name: Extract Project
         run: |
-          unzip -q BUNKER-HDR-Android-Project.zip -d extracted
-          cp -a extracted/BUNKER-HDR-Android/. .
-          test -f app/src/main/assets/index.html
+          unzip -q "BUNKER-HDR-Android-Project (1).zip" -d extracted
+          find extracted -name settings.gradle -print
 
       - name: Build APK
         run: gradle --no-daemon assembleDebug
