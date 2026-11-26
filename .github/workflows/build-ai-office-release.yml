@@ -1,0 +1,132 @@
+name: Build BUNKER HDR AI Office Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'BUNKER-HDR-AI-OFFICE-Android-Project.zip'
+      - 'BUNKER-HDR-AI-OFFICE.zip'
+      - '.github/workflows/build-ai-office-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$SDK/cmdline-tools" /tmp/android-cmdline
+          cd /tmp
+          curl -fL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d /tmp/android-cmdline
+          mkdir -p "$SDK/cmdline-tools/latest"
+          cp -r /tmp/android-cmdline/cmdline-tools/. "$SDK/cmdline-tools/latest/"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Install Gradle 8.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
+          echo "/tmp/gradle-8.9/bin" >> "$GITHUB_PATH"
+
+      - name: Extract and validate Android project
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE=''
+          if [[ -s BUNKER-HDR-AI-OFFICE-Android-Project.zip ]]; then
+            ARCHIVE='BUNKER-HDR-AI-OFFICE-Android-Project.zip'
+          elif [[ -s BUNKER-HDR-AI-OFFICE.zip ]]; then
+            ARCHIVE='BUNKER-HDR-AI-OFFICE.zip'
+          else
+            echo 'ZIP proyek AI Office tidak ditemukan di root repository.'
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/ai-office-src"
+          unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/ai-office-src"
+          PROJECT="$RUNNER_TEMP/ai-office-src/BUNKER-HDR-AI-OFFICE"
+          test -s "$PROJECT/settings.gradle"
+          test -s "$PROJECT/app/build.gradle"
+          test -s "$PROJECT/app/src/main/assets/index.html"
+          test -s "$PROJECT/app/src/main/AndroidManifest.xml"
+          grep -q 'liberty_bunker_rob_v3' "$PROJECT/app/src/main/assets/index.html"
+          grep -q "applicationId 'com.tbliberty27.bunkerhdraioffice'" "$PROJECT/app/build.gradle"
+          grep -q 'package com.tbliberty27.bunkerhdraioffice' "$PROJECT/app/src/main/java/com/tbliberty27/bunkerhdraioffice/MainActivity.kt"
+          echo "project_dir=$PROJECT" >> "$GITHUB_OUTPUT"
+
+      - name: Verify AI Office signing Secrets and keystore
+        shell: bash
+        env:
+          KS_BASE64: ${{ secrets.AI_OFFICE_KEYSTORE_BASE64 }}
+          KS_STORE_PASSWORD: ${{ secrets.AI_OFFICE_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.AI_OFFICE_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.AI_OFFICE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KS_BASE64" || { echo 'Secret AI_OFFICE_KEYSTORE_BASE64 belum diisi.'; exit 1; }
+          test -n "$KS_STORE_PASSWORD" || { echo 'Secret AI_OFFICE_KEYSTORE_PASSWORD belum diisi.'; exit 1; }
+          test -n "$KS_ALIAS" || { echo 'Secret AI_OFFICE_KEY_ALIAS belum diisi.'; exit 1; }
+          test -n "$KS_KEY_PASSWORD" || { echo 'Secret AI_OFFICE_KEY_PASSWORD belum diisi.'; exit 1; }
+          KS_FILE="$RUNNER_TEMP/bunker-hdr-ai-office-release.p12"
+          printf '%s' "$KS_BASE64" | base64 --decode > "$KS_FILE"
+          test -s "$KS_FILE"
+          keytool -list -keystore "$KS_FILE" -storetype PKCS12 -storepass "$KS_STORE_PASSWORD" -alias "$KS_ALIAS" >/dev/null
+          keytool -certreq -alias "$KS_ALIAS" -keystore "$KS_FILE" -storetype PKCS12 -storepass "$KS_STORE_PASSWORD" -keypass "$KS_KEY_PASSWORD" -file "$RUNNER_TEMP/ai-office-check.csr" >/dev/null 2>&1
+          rm -f "$RUNNER_TEMP/ai-office-check.csr"
+          echo "AI_OFFICE_KEYSTORE_PATH=$KS_FILE" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        shell: bash
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        env:
+          AI_OFFICE_KEYSTORE_PASSWORD: ${{ secrets.AI_OFFICE_KEYSTORE_PASSWORD }}
+          AI_OFFICE_KEY_ALIAS: ${{ secrets.AI_OFFICE_KEY_ALIAS }}
+          AI_OFFICE_KEY_PASSWORD: ${{ secrets.AI_OFFICE_KEY_PASSWORD }}
+        run: gradle --no-daemon --stacktrace clean assembleRelease
+
+      - name: Verify APK package and signature
+        shell: bash
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+          APK='app/build/outputs/apk/release/app-release.apk'
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -q "package: name='com.tbliberty27.bunkerhdraioffice'"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+          echo 'APK package dan tanda tangan berhasil diverifikasi.'
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BUNKER-HDR-AI-Office-release-APK
+          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
